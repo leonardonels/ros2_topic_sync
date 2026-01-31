@@ -1,0 +1,8 @@
+topic_synchronizer:
+  ros__parameters:
+    # Modalità timestamp: "now" (tempo corrente) o "relative" (partendo da 0 all'arrivo del primo msg)
+    timestamp_mode: "now"
+    
+    # Liste parallele: devono avere la stessa lunghezza
+    topic_names: ["/lidar_points", "/lidar_imu"]
+    topic_types: ["pcl", "imu"]
