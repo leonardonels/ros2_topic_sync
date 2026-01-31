@@ -1,8 +1,10 @@
 topic_synchronizer:
   ros__parameters:
     # Modalità timestamp: "now" (tempo corrente) o "relative" (partendo da 0 all'arrivo del primo msg)
-    timestamp_mode: "now"
+    timestamp_mode: "relative"
     
-    # Liste parallele: devono avere la stessa lunghezza
-    topic_names: ["/lidar_points", "/lidar_imu"]
-    topic_types: ["pcl", "imu"]
+    topic_names: ["/lidar_points", "/lidar_imu", "clusters"]
+    # Tipi di topic corrispondenti: "pcl" (PointCloud2), "imu" (Imu), "marker" (Marker)
+    topic_types: ["pcl", "imu", "marker"]
+    # Fattore di downsampling: 1 = pubblica tutti, 2 = uno ogni 2, 3 = uno ogni 3, ecc.
+    downsampling_factors: [1, 1, 1]

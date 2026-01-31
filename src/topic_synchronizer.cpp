@@ -22,8 +22,9 @@ public:
         const std::string& topic_name, 
         const std::string& mode,
         std::shared_ptr<rclcpp::Time> start_time_ref,
-        std::shared_ptr<bool> start_time_set_ref)
-    : node_(node), mode_(mode), start_time_(start_time_ref), start_time_set_(start_time_set_ref)
+        std::shared_ptr<bool> start_time_set_ref,
+        int downsampling_factor)
+    : node_(node), mode_(mode), start_time_(start_time_ref), start_time_set_(start_time_set_ref), downsampling_factor_(downsampling_factor), msg_counter_(0)
     {
         sub_ = node_->create_subscription<MsgT>(
             topic_name, 
@@ -33,11 +34,16 @@ public:
         std::string out_topic = "/synced" + topic_name;
         pub_ = node_->create_publisher<MsgT>(out_topic, 10);
         
-        RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s", topic_name.c_str(), out_topic.c_str());
+        RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s (Downsampling: %d)", topic_name.c_str(), out_topic.c_str(), downsampling_factor_);
     }
 
 private:
     void callback(std::shared_ptr<MsgT> msg) {
+        msg_counter_++;
+        if ((msg_counter_ % downsampling_factor_) != 0) {
+            return; // Skip message
+        }
+
         rclcpp::Time now = node_->now();
 
         if (mode_ == "now") {
@@ -67,6 +73,9 @@ private:
     
     typename rclcpp::Subscription<MsgT>::SharedPtr sub_;
     typename rclcpp::Publisher<MsgT>::SharedPtr pub_;
+    
+    int downsampling_factor_;
+    uint64_t msg_counter_;
 };
 
 class TopicSynchronizer : public rclcpp::Node {
@@ -77,15 +86,22 @@ public:
         this->declare_parameter("timestamp_mode", "now");
         this->declare_parameter("topic_names", std::vector<std::string>{});
         this->declare_parameter("topic_types", std::vector<std::string>{});
+        this->declare_parameter("downsampling_factors", std::vector<int64_t>{});
 
         std::string mode = this->get_parameter("timestamp_mode").as_string();
         std::vector<std::string> names = this->get_parameter("topic_names").as_string_array();
         std::vector<std::string> types = this->get_parameter("topic_types").as_string_array();
+        std::vector<int64_t> downsampling = this->get_parameter("downsampling_factors").as_integer_array();
+
+        // Se downsampling non è specificato, usa 1 per tutti
+        if (downsampling.empty()) {
+            downsampling.resize(names.size(), 1);
+        }
 
         RCLCPP_INFO(this->get_logger(), "Modalità: %s. Trovati %zu topic da configurare.", mode.c_str(), names.size());
 
-        if (names.size() != types.size()) {
-            RCLCPP_ERROR(this->get_logger(), "Errore: topic_names e topic_types devono avere la stessa dimensione!");
+        if (names.size() != types.size() || names.size() != downsampling.size()) {
+            RCLCPP_ERROR(this->get_logger(), "Errore: topic_names, topic_types e downsampling_factors devono avere la stessa dimensione!");
             return;
         }
 
@@ -95,26 +111,27 @@ public:
         for (size_t i = 0; i < names.size(); ++i) {
             std::string name = names[i];
             std::string type = types[i];
+            int factor = static_cast<int>(downsampling[i]);
 
-            create_handler(name, type, mode);
+            create_handler(name, type, mode, factor);
         }
     }
 
 private:
-    void create_handler(const std::string& name, const std::string& type, const std::string& mode) {
+    void create_handler(const std::string& name, const std::string& type, const std::string& mode, int factor) {
         std::shared_ptr<TopicHandlerBase> handler;
 
         if (type == "pcl") {
             handler = std::make_shared<TypedTopicHandler<sensor_msgs::msg::PointCloud2>>(
-                this, name, mode, global_start_time_, global_start_time_set_);
+                this, name, mode, global_start_time_, global_start_time_set_, factor);
         } 
         else if (type == "imu") {
             handler = std::make_shared<TypedTopicHandler<sensor_msgs::msg::Imu>>(
-                this, name, mode, global_start_time_, global_start_time_set_);
+                this, name, mode, global_start_time_, global_start_time_set_, factor);
         }
         else if (type == "marker") {
             handler = std::make_shared<TypedTopicHandler<visualization_msgs::msg::Marker>>(
-                this, name, mode, global_start_time_, global_start_time_set_);
+                this, name, mode, global_start_time_, global_start_time_set_, factor);
         }
         else {
              RCLCPP_WARN(this->get_logger(), "Tipo sconosciuto '%s' per il topic '%s'. Ignorato.", type.c_str(), name.c_str());
