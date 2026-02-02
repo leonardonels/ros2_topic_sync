@@ -18,7 +18,7 @@ template<typename MsgT>
 class TypedTopicHandler : public TopicHandlerBase {
 public:
     TypedTopicHandler(
-        rclcpp::Node* node, 
+        rclcpp::Node* node,
         const std::string& topic_name, 
         const std::string& mode,
         std::shared_ptr<rclcpp::Time> start_time_ref,
@@ -26,18 +26,24 @@ public:
         int downsampling_factor)
     : node_(node), mode_(mode), start_time_(start_time_ref), start_time_set_(start_time_set_ref), downsampling_factor_(downsampling_factor), msg_counter_(0)
     {
+    
         sub_ = node_->create_subscription<MsgT>(
             topic_name, 
             rclcpp::SensorDataQoS(), 
             std::bind(&TypedTopicHandler::callback, this, std::placeholders::_1));
-
+        
         std::string out_topic = "/synced" + topic_name;
         pub_ = node_->create_publisher<MsgT>(out_topic, 10);
+
+        if (topic_name == "/imu/data"){
+            // fix later
+            xsens_ = false; //true;
+        }
         
         RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s (Downsampling: %d)", topic_name.c_str(), out_topic.c_str(), downsampling_factor_);
     }
 
-private:
+protected:
     void callback(std::shared_ptr<MsgT> msg) {
         msg_counter_++;
         if ((msg_counter_ % downsampling_factor_) != 0) {
@@ -62,7 +68,24 @@ private:
             msg->header.stamp = rclcpp::Time(diff.nanoseconds());
         }
 
+        if constexpr (std::is_same<MsgT, sensor_msgs::msg::Imu>::value) if (xsens_) callback_xsens(msg);
+
         pub_->publish(*msg);
+    }
+
+    void callback_xsens(std::shared_ptr<sensor_msgs::msg::Imu> msg) {
+        // Flip the y axis to have the same direction as the lidar
+        RCLCPP_INFO(node_->get_logger(), "orientation -> OG value: %f", msg->orientation.y);
+        msg->orientation.y = -msg->orientation.y;
+        RCLCPP_INFO(node_->get_logger(), "orientation -> Flipped value: %f", msg->orientation.y);
+
+        RCLCPP_INFO(node_->get_logger(), "angular_velocity -> OG value: %f", msg->angular_velocity.y);
+        msg->angular_velocity.y = -msg->angular_velocity.y;
+        RCLCPP_INFO(node_->get_logger(), "angular_velocity -> Flipped value: %f", msg->angular_velocity.y);
+
+        RCLCPP_INFO(node_->get_logger(), "linear_acceleration -> OG value: %f", msg->linear_acceleration.y);
+        msg->linear_acceleration.y = -msg->linear_acceleration.y;
+        RCLCPP_INFO(node_->get_logger(), "linear_acceleration -> Flipped value: %f", msg->linear_acceleration.y);
     }
 
     rclcpp::Node* node_;
@@ -76,6 +99,8 @@ private:
     
     int downsampling_factor_;
     uint64_t msg_counter_;
+
+    bool xsens_ = false;
 };
 
 class TopicSynchronizer : public rclcpp::Node {
