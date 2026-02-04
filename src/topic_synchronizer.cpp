@@ -36,8 +36,8 @@ public:
         pub_ = node_->create_publisher<MsgT>(out_topic, 10);
 
         if (topic_name == "/imu/data"){
-            // fix later
-            xsens_ = false; //true;
+            xsens_ = true;
+            RCLCPP_INFO(node_->get_logger(), "Xsens IMU rilevato, applicando correzione asse Y.");
         }
         
         RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s (Downsampling: %d)", topic_name.c_str(), out_topic.c_str(), downsampling_factor_);
@@ -74,18 +74,39 @@ protected:
     }
 
     void callback_xsens(std::shared_ptr<sensor_msgs::msg::Imu> msg) {
-        // Flip the y axis to have the same direction as the lidar
-        RCLCPP_INFO(node_->get_logger(), "orientation -> OG value: %f", msg->orientation.y);
-        msg->orientation.y = -msg->orientation.y;
-        RCLCPP_INFO(node_->get_logger(), "orientation -> Flipped value: %f", msg->orientation.y);
+        //msg->linear_acceleration.y *= -1.0;
+        //msg->angular_velocity.y *= -1.0;
+        //msg->orientation.y *= -1.0;
+//
+        //// Updating covariances for the Y axis flip
+        //msg->linear_acceleration_covariance[1] *= -1.0; // xy
+        //msg->linear_acceleration_covariance[3] *= -1.0; // yx
+        //msg->linear_acceleration_covariance[5] *= -1.0; // yz
+        //msg->linear_acceleration_covariance[7] *= -1.0; // zy
+//
+        //msg->angular_velocity_covariance[1] *= -1.0;
+        //msg->angular_velocity_covariance[3] *= -1.0;
+        //msg->angular_velocity_covariance[5] *= -1.0;
+        //msg->angular_velocity_covariance[7] *= -1.0;
+//
+        //msg->orientation_covariance[1] *= -1.0;
+        //msg->orientation_covariance[3] *= -1.0;
+        //msg->orientation_covariance[5] *= -1.0;
+        //msg->orientation_covariance[7] *= -1.0;
 
-        RCLCPP_INFO(node_->get_logger(), "angular_velocity -> OG value: %f", msg->angular_velocity.y);
-        msg->angular_velocity.y = -msg->angular_velocity.y;
-        RCLCPP_INFO(node_->get_logger(), "angular_velocity -> Flipped value: %f", msg->angular_velocity.y);
+        // print ax, ay, az, wx, wy, wz
+        RCLCPP_INFO(node_->get_logger(), "IMU Synced: ax: %f, ay: %f, az: %f, wx: %f, wy: %f, wz: %f",
+            msg->linear_acceleration.x,
+            msg->linear_acceleration.y,
+            msg->linear_acceleration.z,
+            msg->angular_velocity.x,
+            msg->angular_velocity.y,
+            msg->angular_velocity.z);
 
-        RCLCPP_INFO(node_->get_logger(), "linear_acceleration -> OG value: %f", msg->linear_acceleration.y);
-        msg->linear_acceleration.y = -msg->linear_acceleration.y;
-        RCLCPP_INFO(node_->get_logger(), "linear_acceleration -> Flipped value: %f", msg->linear_acceleration.y);
+        // keep track of min and max values
+        if (msg->angular_velocity.z < min_) min_ = msg->angular_velocity.z;
+        if (msg->angular_velocity.z > max_) max_ = msg->angular_velocity.z;
+        RCLCPP_INFO(node_->get_logger(), "IMU Z angular velocity min: %f, max: %f", min_, max_);
     }
 
     rclcpp::Node* node_;
@@ -101,6 +122,7 @@ protected:
     uint64_t msg_counter_;
 
     bool xsens_ = false;
+    float min_, max_;
 };
 
 class TopicSynchronizer : public rclcpp::Node {
