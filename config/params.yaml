@@ -8,6 +8,4 @@ topic_synchronizer:
     topic_types: ["pcl", "imu", "imu"]
     # Fattore di downsampling: 1 = pubblica tutti, 2 = uno ogni 2, 3 = uno ogni 3, ecc.
     downsampling_factors: [1, 1, 1]
-
-    # $ ros2 launch hesai_ros_driver hesai.launch.py & ros2 bag play ~/ros2_ws/bags/rosbag2_2025_11_18-16_53_08-5c-0.95/ --topics /imu/data && fg
-    # Aggiungere passthrough, -imu, delta_time
+    retarder: [0, 2500, 0]  # Ritardo in millisecondi da aggiungere a ciascun topic
