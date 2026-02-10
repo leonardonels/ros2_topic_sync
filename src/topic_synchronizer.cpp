@@ -50,6 +50,7 @@ protected:
 
         if (mode_ == "now") {
             msg->header.stamp = now + rclcpp::Duration(std::chrono::milliseconds(retarder));
+            RCLCPP_INFO(node_->get_logger(), "Timestamp aggiornato da %f a %f", now.seconds(), msg->header.stamp.seconds());
         } 
         else if (mode_ == "relative") {
             // il primo messaggio in assoluto definisce il tempo zero
