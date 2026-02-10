@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 #include <chrono>
+#include <deque>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
@@ -36,7 +37,15 @@ public:
         std::string out_topic = "/synced" + topic_name;
         pub_ = node_->create_publisher<MsgT>(out_topic, 10);
         
-        RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s (Downsampling: %d)", topic_name.c_str(), out_topic.c_str(), downsampling_factor_);
+        if (retarder > 0) {
+            timer_ = node_->create_wall_timer(
+                std::chrono::milliseconds(10),
+                std::bind(&TypedTopicHandler::timer_callback, this));
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "Bridge creato: %s -> %s (Downsampling: %d, Ritardo: %d ms %s)", 
+            topic_name.c_str(), out_topic.c_str(), downsampling_factor_, retarder, 
+            retarder > 0 ? "con bufferizzazione" : "");
     }
 
 protected:
@@ -46,11 +55,35 @@ protected:
             return; // Skip message
         }
 
+        if (retarder <= 0) {
+            publish_msg(msg);
+        } else {
+            buffer_.push_back({node_->now(), msg});
+        }
+    }
+
+    void timer_callback() {
+        if (buffer_.empty()) return;
+
+        rclcpp::Time now = node_->now();
+        while (!buffer_.empty()) {
+            auto& front = buffer_.front();
+            // Se le classi dei clock non sono identiche, Duration sottrae comunque correttamente 
+            // ma usiamo rclcpp::Duration per sicurezza
+            if ((now - front.first) >= rclcpp::Duration(std::chrono::milliseconds(retarder))) {
+                publish_msg(front.second);
+                buffer_.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    void publish_msg(std::shared_ptr<MsgT> msg) {
         rclcpp::Time now = node_->now();
 
         if (mode_ == "now") {
-            msg->header.stamp = now + rclcpp::Duration(std::chrono::milliseconds(retarder));
-            RCLCPP_INFO(node_->get_logger(), "Timestamp aggiornato da %f a %f", now.seconds(), msg->header.stamp.seconds());
+            msg->header.stamp = now;
         } 
         else if (mode_ == "relative") {
             // il primo messaggio in assoluto definisce il tempo zero
@@ -60,8 +93,7 @@ protected:
                 RCLCPP_INFO(node_->get_logger(), "Tempo zero inizializzato a: %f", start_time_->seconds());
             }
 
-            rclcpp::Duration diff = now - *start_time_ + rclcpp::Duration(std::chrono::milliseconds(retarder));
-            
+            rclcpp::Duration diff = now - *start_time_;
             msg->header.stamp = rclcpp::Time(diff.nanoseconds());
         }
 
@@ -76,10 +108,13 @@ protected:
     
     typename rclcpp::Subscription<MsgT>::SharedPtr sub_;
     typename rclcpp::Publisher<MsgT>::SharedPtr pub_;
+    rclcpp::TimerBase::SharedPtr timer_;
     
     int downsampling_factor_;
     int retarder;
     uint64_t msg_counter_;
+
+    std::deque<std::pair<rclcpp::Time, std::shared_ptr<MsgT>>> buffer_;
 
     bool xsens_ = false;
     float min_, max_;
@@ -143,14 +178,17 @@ private:
         std::shared_ptr<TopicHandlerBase> handler;
 
         if (type == "pcl") {
+            RCLCPP_INFO(this->get_logger(), "Creazione handler per topic '%s' di tipo PointCloud2 con fattore di downsampling %d e ritardo %d ms", name.c_str(), factor, ret);
             handler = std::make_shared<TypedTopicHandler<sensor_msgs::msg::PointCloud2>>(
                 this, name, mode, global_start_time_, global_start_time_set_, factor, ret);
         } 
         else if (type == "imu") {
+                RCLCPP_INFO(this->get_logger(), "Creazione handler per topic '%s' di tipo Imu con fattore di downsampling %d e ritardo %d ms", name.c_str(), factor, ret);
             handler = std::make_shared<TypedTopicHandler<sensor_msgs::msg::Imu>>(
                 this, name, mode, global_start_time_, global_start_time_set_, factor, ret);
         }
         else if (type == "marker") {
+            RCLCPP_INFO(this->get_logger(), "Creazione handler per topic '%s' di tipo Marker con fattore di downsampling %d e ritardo %d ms", name.c_str(), factor, ret);
             handler = std::make_shared<TypedTopicHandler<visualization_msgs::msg::Marker>>(
                 this, name, mode, global_start_time_, global_start_time_set_, factor, ret);
         }
